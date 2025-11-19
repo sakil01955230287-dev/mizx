@@ -1,2 +1,871 @@
-# mizx
-A app of trustiness
+<!DOCTYPE html>
+<html lang="en">
+    <link rel="stylesheet" href="style.css">
+    
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIZx PAY User Management & History</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Payment Method Brand Colors */
+        .bg-bkash { background-color: #E2136E; color: white; }
+        .bg-nagad { background-color: #F7941D; color: white; }
+        .text-bkash { color: #E2136E; }
+        .text-nagad { color: #F7941D; }
+        .bg-bank { background-color: #1E3A8A; color: white; }
+        .text-bank { color: #1E3A8A; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed top-5 right-5 transform translate-x-full transition-transform duration-300 z-50 bg-white border-l-4 border-blue-500 shadow-lg rounded-r p-4 flex items-center hidden">
+        <div id="toast-icon" class="text-blue-500 mr-3"><i class="fas fa-info-circle"></i></div>
+        <div>
+            <p id="toast-title" class="font-bold text-sm">Notification</p>
+            <p id="toast-message" class="text-xs text-gray-600">Message content</p>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="app" class="flex-grow flex items-center justify-center p-4">
+        <!-- Content injected by JS -->
+    </div>
+
+    <script>
+        /**
+         * STATE MANAGEMENT & DATABASE SIMULATION
+         */
+        // CRITICAL: Version v5 forces a clean slate to initialize Fund History log
+        const DB_KEY = 'nexus_users_v5';
+        
+        // Default Data Seeding
+        const defaultUsers = [
+            { id: 1, username: 'Mizx999', password: 'mizxhacker1', role: 'admin', balance: 0, isLocked: false, fullName: 'System Administrator', createdAt: new Date().toISOString() },
+            { id: 2, username: 'user1', password: 'password', role: 'user', balance: 1500.50, isLocked: false, fullName: 'John Doe', createdAt: new Date().toISOString() },
+            { id: 3, username: 'user2', password: 'password', role: 'user', balance: 0.00, isLocked: true, fullName: 'Jane Smith', createdAt: new Date().toISOString() }
+        ];
+
+        const defaultAppData = {
+            users: defaultUsers,
+            // New history structure
+            fundHistory: []
+        };
+
+        // App State
+        let currentUser = null;
+        let userToDeleteId = null; 
+        let depositUserId = null;  
+        let currentView = 'dashboard'; // 'dashboard' or 'history'
+
+        // Utilities
+        const getStorage = () => {
+            const data = localStorage.getItem(DB_KEY);
+            return data ? JSON.parse(data) : defaultAppData;
+        };
+
+        const setStorage = (data) => {
+            localStorage.setItem(DB_KEY, JSON.stringify(data));
+        };
+
+        // Initialize DB if empty
+        if (!localStorage.getItem(DB_KEY)) {
+            setStorage(defaultAppData);
+        }
+
+        /**
+         * UI RENDERER
+         */
+        const app = document.getElementById('app');
+
+        function showToast(title, message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const tTitle = document.getElementById('toast-title');
+            const tMsg = document.getElementById('toast-message');
+            const tIcon = document.getElementById('toast-icon');
+
+            tTitle.innerText = title;
+            tMsg.innerText = message;
+            toast.classList.remove('hidden', 'translate-x-full');
+            
+            if(type === 'error') {
+                toast.classList.replace('border-blue-500', 'border-red-500');
+                toast.classList.replace('border-green-500', 'border-red-500');
+                tIcon.className = 'text-red-500 mr-3';
+                tIcon.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
+            } else if (type === 'success') {
+                toast.classList.replace('border-blue-500', 'border-green-500');
+                toast.classList.replace('border-red-500', 'border-green-500');
+                tIcon.className = 'text-green-500 mr-3';
+                tIcon.innerHTML = '<i class="fas fa-check-circle"></i>';
+            } else {
+                toast.classList.replace('border-red-500', 'border-blue-500');
+                toast.classList.replace('border-green-500', 'border-blue-500');
+                tIcon.className = 'text-blue-500 mr-3';
+                tIcon.innerHTML = '<i class="fas fa-info-circle"></i>';
+            }
+
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => toast.classList.add('hidden'), 300);
+            }, 3000);
+        }
+
+        function renderLogin() {
+            // Reset app container class
+            app.className = "flex-grow flex items-center justify-center p-4";
+            app.innerHTML = `
+                <div class="w-full max-w-md bg-white shadow-2xl rounded-2xl overflow-hidden fade-in">
+                    <div class="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 text-center">
+                        <div class="inline-block p-4 bg-white/20 rounded-full mb-4 backdrop-blur-sm">
+                            <i class="fas fa-shield-alt text-4xl text-white"></i>
+                        </div>
+                        <h1 class="text-2xl font-bold text-white">MIZx PAY</h1>
+                        <p class="text-blue-100 text-sm mt-1">Made By MR. MIRROR</p>
+                    </div>
+                    <div class="p-8">
+                        <form id="loginForm" class="space-y-6">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Username</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                        <i class="fas fa-user"></i>
+                                    </span>
+                                    <input type="text" id="username" class="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all" placeholder="Enter ID" required>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Password</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                        <i class="fas fa-lock"></i>
+                                    </span>
+                                    <input type="password" id="password" class="w-full pl-10 pr-10 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all" placeholder="Enter Password" required>
+                                    <button type="button" onclick="togglePasswordVisibility()" class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors">
+                                        <i class="fas fa-eye" id="eyeIcon"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5">
+                                Login to Dashboard
+                            </button>
+                        </form>
+                        <div class="mt-6 text-center">
+                            <p class="text-xs text-gray-400">
+                                <i class="fas fa-lock mr-1"></i> Secure System. IPs are logged.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+        }
+
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            const eyeIcon = document.getElementById('eyeIcon');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                eyeIcon.classList.remove('fa-eye');
+                eyeIcon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                eyeIcon.classList.remove('fa-eye-slash');
+                eyeIcon.classList.add('fa-eye');
+            }
+        }
+
+        function renderAdminPanel() {
+            const appData = getStorage();
+            const users = appData.users;
+            
+            // Calculate stats
+            const totalUsers = users.filter(u => u.role !== 'admin').length;
+            const totalBalance = users.reduce((acc, curr) => acc + curr.balance, 0);
+            const activeUsers = users.filter(u => !u.isLocked && u.role !== 'admin').length;
+            
+            // Set App container style for admin view
+            app.className = "w-full min-h-screen bg-gray-50 block";
+
+            const historyButtonClass = currentView === 'history' ? 'text-white bg-blue-700 px-3 py-2 rounded-lg' : 'text-blue-200 hover:text-white bg-blue-900/50 px-3 py-2 rounded-lg transition-colors';
+            const dashboardButtonClass = currentView === 'dashboard' ? 'text-white bg-blue-700 px-3 py-2 rounded-lg' : 'text-blue-200 hover:text-white bg-blue-900/50 px-3 py-2 rounded-lg transition-colors';
+
+            app.innerHTML = `
+                <nav class="bg-blue-800 text-white shadow-lg sticky top-0 z-30">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div class="flex justify-between h-16 items-center">
+                            <div class="flex items-center">
+                                <i class="fas fa-shield-alt text-blue-300 text-2xl mr-3"></i>
+                                <span class="font-bold text-xl tracking-tight">Admin Console</span>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <!-- Navigation Buttons -->
+                                <button onclick="setCurrentView('dashboard')" class="${dashboardButtonClass} text-sm font-medium">
+                                    <i class="fas fa-tachometer-alt mr-1"></i> Dashboard
+                                </button>
+                                <button onclick="setCurrentView('history')" class="${historyButtonClass} text-sm font-medium">
+                                    <i class="fas fa-history mr-1"></i> History
+                                </button>
+                                <!-- User & Logout -->
+                                <span class="text-sm text-blue-200 bg-blue-900/50 px-3 py-1 rounded-full"><i class="fas fa-user-circle mr-2"></i>${currentUser.username}</span>
+                                <button onclick="logout()" class="text-red-300 hover:text-white font-medium text-sm">Logout <i class="fas fa-sign-out-alt ml-1"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+
+                <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 fade-in">
+                    ${currentView === 'dashboard' ? renderAdminDashboard(users, totalUsers, totalBalance, activeUsers) : renderFundHistory(appData.fundHistory, users)}
+                </main>
+
+                <!-- Modals (kept outside main to stay on top) -->
+                ${getModals(users)}
+
+            `;
+            
+            // Re-attach event listeners after innerHTML update
+            if(currentView === 'dashboard') {
+                document.getElementById('createUserForm').addEventListener('submit', handleCreateUser);
+            }
+            // Deposit form listener needs to be attached regardless of current view if user switches back
+            document.getElementById('depositForm').addEventListener('submit', handleDeposit);
+        }
+
+        function setCurrentView(view) {
+            currentView = view;
+            renderAdminPanel();
+        }
+
+        function renderAdminDashboard(users, totalUsers, totalBalance, activeUsers) {
+            return `
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase">Total Users</p>
+                                <h3 class="text-2xl font-bold text-gray-800 mt-1">${totalUsers}</h3>
+                            </div>
+                            <div class="p-3 bg-blue-50 rounded-lg text-blue-600"><i class="fas fa-users"></i></div>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase">System Holdings</p>
+                                <h3 class="text-2xl font-bold text-gray-800 mt-1">$${totalBalance.toLocaleString(undefined, {minimumFractionDigits: 2})}</h3>
+                            </div>
+                            <div class="p-3 bg-green-50 rounded-lg text-green-600"><i class="fas fa-wallet"></i></div>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase">Active Accounts</p>
+                                <h3 class="text-2xl font-bold text-gray-800 mt-1">${activeUsers}</h3>
+                            </div>
+                            <div class="p-3 bg-purple-50 rounded-lg text-purple-600"><i class="fas fa-check-circle"></i></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Bar -->
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl font-bold text-gray-800">User Management</h2>
+                    <button onclick="openCreateModal()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow transition-colors">
+                        <i class="fas fa-plus mr-2"></i>Create New User
+                    </button>
+                </div>
+
+                <!-- User Table -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User Info</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Balance</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${users.map(user => {
+                                    if(user.role === 'admin') return ''; 
+                                    return `
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center">
+                                                <div class="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3">
+                                                    ${user.fullName.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <div class="font-medium text-gray-900">${user.fullName}</div>
+                                                    <div class="text-xs text-gray-500">@${user.username}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="font-mono font-medium text-gray-700">$${user.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 text-xs rounded-full ${user.isLocked ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
+                                                ${user.isLocked ? 'Locked' : 'Active'}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right space-x-2">
+                                            <!-- ADMIN DEPOSIT BUTTON -->
+                                            <button onclick="openPaymentModal(${user.id})" class="text-gray-400 hover:text-green-600 transition-colors" title="Deposit Funds (Bank/Bkash/Nagad)">
+                                                <i class="fas fa-wallet"></i>
+                                            </button>
+                                            <button onclick="openBalanceModal(${user.id})" class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit Balance (Manual)">
+                                                <i class="fas fa-coins"></i>
+                                            </button>
+                                            <button onclick="toggleLock(${user.id})" class="${user.isLocked ? 'text-red-500 hover:text-green-500' : 'text-gray-400 hover:text-red-500'} transition-colors" title="${user.isLocked ? 'Unlock' : 'Lock'}">
+                                                <i class="fas ${user.isLocked ? 'fa-lock' : 'fa-lock-open'}"></i>
+                                            </button>
+                                            <button onclick="openDeleteModal(${user.id})" class="text-gray-400 hover:text-red-600 transition-colors" title="Delete User">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ${users.length <= 1 ? '<div class="p-8 text-center text-gray-500">No users found. Create one to get started.</div>' : ''}
+                </div>
+            `;
+        }
+
+        function renderFundHistory(history, users) {
+            // Sort by latest first
+            const sortedHistory = [...history].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            
+            const getUserName = (userId) => {
+                const user = users.find(u => u.id === userId);
+                return user ? user.fullName : 'N/A';
+            }
+
+            const getMethodStyle = (method) => {
+                switch(method) {
+                    case 'bank': return 'bg-bank text-white';
+                    case 'bkash': return 'bg-bkash text-white';
+                    case 'nagad': return 'bg-nagad text-white';
+                    default: return 'bg-gray-200 text-gray-700';
+                }
+            }
+
+            return `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Fund History</h2>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Method</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">TrxID / Ref</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${sortedHistory.length > 0 ? sortedHistory.map(log => `
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 text-sm font-medium text-gray-900">
+                                            ${getUserName(log.userId)} 
+                                            <span class="block text-xs text-gray-500">ID: #${log.userId}</span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 text-xs rounded-full font-bold ${getMethodStyle(log.method)}">
+                                                ${log.method.toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-lg font-bold text-green-600">
+                                            + $${log.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                        </td>
+                                        <td class="px-6 py-4 text-sm font-mono text-gray-700">${log.trxId}</td>
+                                        <td class="px-6 py-4 text-xs text-gray-500">${new Date(log.timestamp).toLocaleString()}</td>
+                                    </tr>
+                                `).join('') : `
+                                    <tr>
+                                        <td colspan="5" class="px-6 py-8 text-center text-gray-500">
+                                            <i class="fas fa-search-plus text-xl mb-2"></i>
+                                            <p>No deposit history found. Complete a deposit to start logging.</p>
+                                        </td>
+                                    </tr>
+                                `}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getModals(users) {
+            // This function ensures modals are included in the overall admin panel render
+            // but are defined here for cleanliness.
+
+            const defaultPaymentModal = `
+                <!-- Payment Methods Modal (Admin Deposit) -->
+                <div id="paymentModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl transform scale-95 transition-all h-auto max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold text-gray-800">Admin Deposit System</h3>
+                            <button onclick="closePaymentModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                        </div>
+                        
+                        <!-- User display for deposit -->
+                        <div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            Depositing to: <strong id="depositUserDisplay" class="text-blue-700"></strong>
+                        </div>
+
+                        <!-- Method Selection -->
+                        <div id="paymentMethodsGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                            <div id="method-bank" onclick="selectPaymentMethod('bank')" class="cursor-pointer border-2 border-gray-100 hover:border-blue-500 rounded-xl p-4 text-center transition-all group">
+                                <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                    <i class="fas fa-university text-xl"></i>
+                                </div>
+                                <h4 class="font-bold text-gray-700">Bank Transfer</h4>
+                            </div>
+                            <div id="method-bkash" onclick="selectPaymentMethod('bkash')" class="cursor-pointer border-2 border-gray-100 hover:border-pink-500 rounded-xl p-4 text-center transition-all group">
+                                <div class="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-3 text-bkash group-hover:bg-bkash group-hover:text-white transition-colors">
+                                    <i class="fas fa-mobile-alt text-xl"></i>
+                                </div>
+                                <h4 class="font-bold text-gray-700">Bkash</h4>
+                            </div>
+                            <div id="method-nagad" onclick="selectPaymentMethod('nagad')" class="cursor-pointer border-2 border-gray-100 hover:border-orange-500 rounded-xl p-4 text-center transition-all group">
+                                <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3 text-nagad group-hover:bg-nagad group-hover:text-white transition-colors">
+                                    <i class="fas fa-wallet text-xl"></i>
+                                </div>
+                                <h4 class="font-bold text-gray-700">Nagad</h4>
+                            </div>
+                        </div>
+
+                        <!-- Payment Form (Hidden initially) -->
+                        <div id="paymentFormSection" class="hidden border-t border-gray-100 pt-6">
+                            <h4 id="selectedMethodTitle" class="font-bold text-lg mb-4 flex items-center">
+                                <span id="methodIcon" class="mr-2"></span> 
+                                <span id="methodName"></span> Details
+                            </h4>
+                            <form id="depositForm" class="space-y-4">
+                                <input type="hidden" id="selectedMethodInput" required>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">Amount to Deposit</label>
+                                    <input type="number" id="depositAmount" min="10" step="0.01" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Enter amount" required>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">Reference / Transaction ID</label>
+                                    <input type="text" id="depositTrxId" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Admin Ref / Transaction ID" required>
+                                </div>
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md mt-2">Process Deposit</button>
+                            </form>
+                        </div>
+
+                    </div>
+                </div>
+            `;
+
+            const createModal = `
+                <!-- Create User Modal -->
+                <div id="createModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl transform scale-95 transition-all">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-gray-800">Create User Account</h3>
+                            <button onclick="closeCreateModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                        </div>
+                        <form id="createUserForm" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Full Name</label>
+                                <input type="text" name="fullName" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Username</label>
+                                <input type="text" name="username" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Password</label>
+                                <input type="password" name="password" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700 mb-1">Initial Balance</label>
+                                <input type="number" name="balance" value="0" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required>
+                            </div>
+                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg mt-2">Create Account</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+
+            const balanceModal = `
+                <!-- Balance Modal -->
+                <div id="balanceModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4">Update Balance</h3>
+                        <input type="hidden" id="balanceUserId">
+                        <div class="mb-4">
+                             <label class="block text-xs font-medium text-gray-700 mb-1">New Balance</label>
+                             <input type="number" id="newBalanceInput" step="0.01" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div class="flex gap-3">
+                            <button onclick="closeBalanceModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg">Cancel</button>
+                            <button onclick="saveBalance()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg">Save</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const deleteModal = `
+                <!-- Delete Confirmation Modal -->
+                <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+                        <div class="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-xl">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-2">Delete User?</h3>
+                        <p class="text-sm text-gray-500 mb-6">Are you sure you want to delete this account? This action cannot be undone.</p>
+                        <div class="flex gap-3">
+                            <button onclick="closeDeleteModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg">Cancel</button>
+                            <button onclick="confirmDeleteUser()" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 rounded-lg shadow-md">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            return defaultPaymentModal + createModal + balanceModal + deleteModal;
+        }
+
+
+        function renderUserPanel() {
+            app.className = "w-full min-h-screen bg-gray-100 block";
+            app.innerHTML = `
+                <div class="min-h-screen flex flex-col">
+                     <nav class="bg-blue-800 text-white shadow-lg">
+                        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div class="flex justify-between h-16 items-center">
+                                <div class="font-bold text-xl tracking-tight"><i class="fas fa-wallet mr-2 text-blue-300"></i>MyWallet</div>
+                                <button onclick="logout()" class="text-blue-200 hover:text-white text-sm font-medium bg-blue-900/50 px-4 py-2 rounded-lg transition-colors">
+                                    Logout
+                                </button>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main class="flex-grow max-w-4xl mx-auto w-full px-4 py-8 fade-in">
+                        
+                        <!-- User Profile Header -->
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6 flex items-center space-x-4">
+                             <div class="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold shadow-md">
+                                ${currentUser.fullName.charAt(0)}
+                            </div>
+                            <div>
+                                <h2 class="text-xl font-bold text-gray-800">${currentUser.fullName}</h2>
+                                <p class="text-gray-500 text-sm">@${currentUser.username}</p>
+                                <span class="inline-block mt-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded">Active Member</span>
+                            </div>
+                        </div>
+
+                        <!-- Balance Card -->
+                        <div class="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-xl text-white p-8 mb-8 relative overflow-hidden">
+                            <!-- Decorative circles -->
+                            <div class="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-white opacity-10"></div>
+                            <div class="absolute bottom-0 left-0 -ml-8 -mb-8 w-24 h-24 rounded-full bg-white opacity-10"></div>
+                            
+                            <p class="text-blue-100 text-sm font-medium uppercase tracking-wider mb-1">Current Balance</p>
+                            <h1 class="text-4xl sm:text-5xl font-bold mb-4">$${currentUser.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</h1>
+                            
+                            <!-- Message replacing the button -->
+                            <div class="flex gap-4 mt-6 text-sm text-blue-200 bg-white/10 p-3 rounded-lg backdrop-blur-sm inline-block">
+                                <i class="fas fa-info-circle mr-2"></i> Contact Admin to add funds
+                            </div>
+                        </div>
+
+                        <!-- Details Grid -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+                                <div class="text-gray-400 mb-2"><i class="fas fa-id-card text-2xl"></i></div>
+                                <p class="text-xs text-gray-500 uppercase">Account ID</p>
+                                <p class="font-mono text-gray-800">#${String(currentUser.id).padStart(6, '0')}</p>
+                            </div>
+                            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+                                <div class="text-gray-400 mb-2"><i class="fas fa-calendar-alt text-2xl"></i></div>
+                                <p class="text-xs text-gray-500 uppercase">Member Since</p>
+                                <p class="text-gray-800">${new Date(currentUser.createdAt).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-8 text-center text-gray-400 text-xs">
+                            Need help? Contact support at admin@nexus.com
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        /**
+         * LOGIC & HANDLERS
+         */
+        function handleLogin(e) {
+            e.preventDefault();
+            const userIn = document.getElementById('username').value;
+            const passIn = document.getElementById('password').value;
+            
+            const appData = getStorage();
+            const foundUser = appData.users.find(u => u.username === userIn && u.password === passIn);
+
+            if (foundUser) {
+                if (foundUser.isLocked) {
+                    showToast('Access Denied', 'Your account has been locked. Please contact the administrator.', 'error');
+                } else {
+                    currentUser = foundUser;
+                    // Reset view to dashboard upon login
+                    currentView = 'dashboard';
+                    if (currentUser.role === 'admin') {
+                        renderAdminPanel();
+                    } else {
+                        renderUserPanel();
+                    }
+                    showToast('Welcome Back', `Logged in as ${currentUser.fullName}`, 'success');
+                }
+            } else {
+                showToast('Login Failed', 'Invalid username or password.', 'error');
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            renderLogin();
+        }
+
+        // Admin Actions
+        function handleCreateUser(e) {
+            e.preventDefault();
+            const form = e.target;
+            const appData = getStorage();
+            const users = appData.users;
+
+            if (users.find(u => u.username === form.username.value)) {
+                showToast('Error', 'Username already exists', 'error');
+                return;
+            }
+
+            const newUser = {
+                id: Date.now(),
+                username: form.username.value,
+                password: form.password.value,
+                fullName: form.fullName.value,
+                balance: parseFloat(form.balance.value),
+                role: 'user',
+                isLocked: false,
+                createdAt: new Date().toISOString()
+            };
+
+            users.push(newUser);
+            setStorage(appData);
+            closeCreateModal();
+            renderAdminPanel();
+            showToast('Success', 'User account created successfully', 'success');
+        }
+
+        function toggleLock(id) {
+            const appData = getStorage();
+            const users = appData.users;
+            const idx = users.findIndex(u => u.id === id);
+            if(idx !== -1 && users[idx].role !== 'admin') {
+                users[idx].isLocked = !users[idx].isLocked;
+                setStorage(appData);
+                renderAdminPanel();
+                showToast('Updated', `User ${users[idx].username} is now ${users[idx].isLocked ? 'Locked' : 'Unlocked'}`, 'info');
+            }
+        }
+
+        // Delete Modal Logic
+        function openDeleteModal(id) {
+            userToDeleteId = id;
+            document.getElementById('deleteModal').classList.remove('hidden');
+            document.getElementById('deleteModal').classList.add('flex');
+        }
+
+        function closeDeleteModal() {
+            userToDeleteId = null;
+            document.getElementById('deleteModal').classList.add('hidden');
+            document.getElementById('deleteModal').classList.remove('flex');
+        }
+
+        function confirmDeleteUser() {
+            if (!userToDeleteId) return;
+            
+            const appData = getStorage();
+            appData.users = appData.users.filter(u => u.id !== userToDeleteId);
+            setStorage(appData);
+            
+            closeDeleteModal();
+            renderAdminPanel();
+            showToast('Deleted', 'User removed from database', 'info');
+        }
+
+        // Balance Modal Logic
+        function openBalanceModal(id) {
+            const appData = getStorage();
+            const user = appData.users.find(u => u.id === id);
+            document.getElementById('balanceUserId').value = id;
+            document.getElementById('newBalanceInput').value = user.balance;
+            document.getElementById('balanceModal').classList.remove('hidden');
+            document.getElementById('balanceModal').classList.add('flex');
+        }
+
+        function closeBalanceModal() {
+            document.getElementById('balanceModal').classList.add('hidden');
+            document.getElementById('balanceModal').classList.remove('flex');
+        }
+
+        function saveBalance() {
+            const id = Number(document.getElementById('balanceUserId').value);
+            const newBal = parseFloat(document.getElementById('newBalanceInput').value);
+            
+            const appData = getStorage();
+            const users = appData.users;
+            const idx = users.findIndex(u => u.id === id);
+            
+            if (idx !== -1) {
+                users[idx].balance = newBal;
+                setStorage(appData);
+                closeBalanceModal();
+                renderAdminPanel();
+                showToast('Success', 'Balance updated', 'success');
+            }
+        }
+
+        function openCreateModal() {
+            document.getElementById('createModal').classList.remove('hidden');
+            document.getElementById('createModal').classList.add('flex');
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.add('hidden');
+            document.getElementById('createModal').classList.remove('flex');
+        }
+
+        // Payment Modal Logic (For Admin)
+        function openPaymentModal(id) {
+            depositUserId = id; 
+            const appData = getStorage();
+            const user = appData.users.find(u => u.id === id);
+            
+            document.getElementById('depositUserDisplay').textContent = `${user.fullName} (@${user.username})`;
+            document.getElementById('paymentFormSection').classList.add('hidden');
+            document.getElementById('paymentMethodsGrid').classList.remove('hidden');
+            document.getElementById('paymentModal').classList.remove('hidden');
+            document.getElementById('paymentModal').classList.add('flex');
+
+            // Reset selected method state/class on open
+            document.querySelectorAll('#paymentMethodsGrid > div').forEach(el => el.style.borderColor = '');
+        }
+
+        function closePaymentModal() {
+            depositUserId = null;
+            document.getElementById('depositForm').reset();
+            document.getElementById('paymentModal').classList.add('hidden');
+            document.getElementById('paymentModal').classList.remove('flex');
+        }
+
+        function selectPaymentMethod(method) {
+            const formSection = document.getElementById('paymentFormSection');
+            const methodsGrid = document.getElementById('paymentMethodsGrid');
+            const nameEl = document.getElementById('methodName');
+            const iconEl = document.getElementById('methodIcon');
+            
+            // Highlight selected method
+            document.querySelectorAll('#paymentMethodsGrid > div').forEach(el => el.style.borderColor = 'rgb(243 244 246)');
+            const selectedElement = document.getElementById(`method-${method}`);
+            if(selectedElement) {
+                 selectedElement.style.borderColor = 
+                    method === 'bank' ? 'rgb(59 130 246)' : 
+                    method === 'bkash' ? 'rgb(236 72 153)' : 
+                    'rgb(249 115 22)';
+            }
+            
+            // Set form inputs
+            document.getElementById('selectedMethodInput').value = method;
+
+            methodsGrid.classList.add('hidden');
+            formSection.classList.remove('hidden');
+            formSection.classList.add('fade-in');
+
+            if(method === 'bank') {
+                nameEl.innerText = 'Bank Transfer';
+                iconEl.innerHTML = '<i class="fas fa-university text-blue-600"></i>';
+            } else if (method === 'bkash') {
+                nameEl.innerText = 'Bkash';
+                iconEl.innerHTML = '<i class="fas fa-mobile-alt text-bkash"></i>';
+            } else if (method === 'nagad') {
+                nameEl.innerText = 'Nagad';
+                iconEl.innerHTML = '<i class="fas fa-wallet text-nagad"></i>';
+            }
+        }
+
+        function handleDeposit(e) {
+            e.preventDefault();
+            if (!depositUserId) return;
+
+            const amount = parseFloat(document.getElementById('depositAmount').value);
+            const method = document.getElementById('selectedMethodInput').value;
+            const trxId = document.getElementById('depositTrxId').value;
+            
+            if(amount > 0) {
+                const appData = getStorage();
+                const users = appData.users;
+                const idx = users.findIndex(u => u.id === depositUserId);
+                
+                if(idx !== -1) {
+                    // 1. Update User Balance
+                    users[idx].balance += amount;
+
+                    // 2. Log Transaction
+                    const newLog = {
+                        id: Date.now(),
+                        userId: depositUserId,
+                        username: users[idx].username,
+                        amount: amount,
+                        method: method,
+                        trxId: trxId,
+                        timestamp: new Date().toISOString()
+                    };
+                    appData.fundHistory.push(newLog);
+
+                    // 3. Save and Rerender
+                    setStorage(appData);
+                    closePaymentModal();
+                    // Keep the current view (dashboard or history)
+                    renderAdminPanel();
+                    showToast('Success', `$${amount} deposited successfully to ${users[idx].username} via ${method.toUpperCase()}`, 'success');
+                }
+            }
+        }
+
+        // Start the app
+        renderLogin();
+
+    </script>
+</body>
+</html>
