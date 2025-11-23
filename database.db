@@ -1,0 +1,20 @@
+#include <sqlite3.h>
+#include <stdio.h>
+int main() {
+   int rc;
+   // Configure SQLite to single-threaded mode
+   rc = sqlite3_config(SQLITE_CONFIG_SINGLETHREAD);
+   if (rc != SQLITE_OK) {
+       printf("Failed to configure SQLite: %d\n", rc);
+       return rc;
+   }
+   // Initialize SQLite
+   rc = sqlite3_initialize();
+   if (rc != SQLITE_OK) {
+       printf("Failed to initialize SQLite: %d\n", rc);
+       return rc;
+   }
+   // Shutdown SQLite
+   sqlite3_shutdown();
+   return 0;
+}
