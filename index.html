@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIZx PAY User Management & History</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Payment Method Brand Colors */
+        .bg-bkash { background-color: #E2136E; color: white; }
+        .bg-nagad { background-color: #F7941D; color: white; }
+        .text-bkash { color: #E2136E; }
+        .text-nagad { color: #F7941D; }
+        .bg-bank { background-color: #1E3A8A; color: white; }
+        .text-bank { color: #1E3A8A; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed top-5 right-5 transform translate-x-full transition-transform duration-300 z-50 bg-white border-l-4 border-blue-500 shadow-lg rounded-r p-4 flex items-center hidden">
+        <div id="toast-icon" class="text-blue-500 mr-3"><i class="fas fa-info-circle"></i></div>
+        <div>
+            <p id="toast-title" class="font-bold text-sm">Notification</p>
+            <p id="toast-message" class="text-xs text-gray-600">Message content</p>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="app" class="flex-grow flex items-center justify-center p-4">
+        <!-- Content injected by JS -->
+    </div>
+
+    <script>
+        /**
+         * STATE MANAGEMENT & DATABASE SIMULATION
+         */
+        const DB_KEY = 'nexus_users_v7'; // Version bumped to v7 for clean state
+        
+        // Default Data Seeding
+        const defaultUsers = [
+            { id: 1, username: 'Mizx999', password: 'mizxhacker1', role: 'admin', balance: 0, isLocked: false, fullName: 'System Administrator', createdAt: new Date().toISOString() },
+            { id: 2, username: 'user1', password: 'password', role: 'user', balance: 1500.50, isLocked: false, fullName: 'John Doe', createdAt: new Date().toISOString() },
+            { id: 3, username: 'user2', password: 'password', role: 'user', balance: 0.00, isLocked: true, fullName: 'Jane Smith', createdAt: new Date().toISOString() }
+        ];
+
+        const defaultAppData = {
+            users: defaultUsers,
+            fundHistory: [],
+            requests: []
+        };
+
+        // App State
+        let currentUser = null;
+        let userToDeleteId = null; 
+        let depositUserId = null;  
+        let currentView = 'dashboard';
+        let currentUserView = 'home';
+
+        // Utilities
+        const getStorage = () => {
+            const data = localStorage.getItem(DB_KEY);
+            return data ? JSON.parse(data) : defaultAppData;
+        };
+
+        const setStorage = (data) => {
+            localStorage.setItem(DB_KEY, JSON.stringify(data));
+        };
+
+        if (!localStorage.getItem(DB_KEY)) {
+            setStorage(defaultAppData);
+        }
+
+        /**
+         * UI RENDERER
+         */
+        const app = document.getElementById('app');
+
+        function showToast(title, message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const tTitle = document.getElementById('toast-title');
+            const tMsg = document.getElementById('toast-message');
+            const tIcon = document.getElementById('toast-icon');
+
+            tTitle.innerText = title;
+            tMsg.innerText = message;
+            toast.classList.remove('hidden', 'translate-x-full');
+            
+            if(type === 'error') {
+                toast.classList.replace('border-blue-500', 'border-red-500');
+                toast.classList.replace('border-green-500', 'border-red-500');
+                tIcon.className = 'text-red-500 mr-3';
+                tIcon.innerHTML = '<i class="fas fa-exclamation-circle"></i>';
+            } else if (type === 'success') {
+                toast.classList.replace('border-blue-500', 'border-green-500');
+                toast.classList.replace('border-red-500', 'border-green-500');
+                tIcon.className = 'text-green-500 mr-3';
+                tIcon.innerHTML = '<i class="fas fa-check-circle"></i>';
+            } else {
+                toast.classList.replace('border-red-500', 'border-blue-500');
+                toast.classList.replace('border-green-500', 'border-blue-500');
+                tIcon.className = 'text-blue-500 mr-3';
+                tIcon.innerHTML = '<i class="fas fa-info-circle"></i>';
+            }
+
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => toast.classList.add('hidden'), 300);
+            }, 3000);
+        }
+
+        function renderLogin() {
+            app.className = "flex-grow flex items-center justify-center p-4";
+            app.innerHTML = `
+                <div class="w-full max-w-md bg-white shadow-2xl rounded-2xl overflow-hidden fade-in">
+                    <div class="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 text-center">
+                        <div class="inline-block p-4 bg-white/20 rounded-full mb-4 backdrop-blur-sm">
+                            <i class="fas fa-shield-alt text-4xl text-white"></i>
+                        </div>
+                        <h1 class="text-2xl font-bold text-white">MIZx PAY</h1>
+                        <p class="text-blue-100 text-sm mt-1">Made By MR. MIRROR</p>
+                    </div>
+                    <div class="p-8">
+                        <form id="loginForm" class="space-y-6">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Username</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                        <i class="fas fa-user"></i>
+                                    </span>
+                                    <input type="text" id="username" class="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all" placeholder="Enter ID" required>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Password</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                        <i class="fas fa-lock"></i>
+                                    </span>
+                                    <input type="password" id="password" class="w-full pl-10 pr-10 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all" placeholder="Enter Password" required>
+                                    <button type="button" onclick="togglePasswordVisibility()" class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors">
+                                        <i class="fas fa-eye" id="eyeIcon"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5">
+                                Login to Dashboard
+                            </button>
+                        </form>
+                        <div class="mt-6 text-center">
+                            <p class="text-xs text-gray-400">
+                                <i class="fas fa-lock mr-1"></i> Secure System. IPs are logged.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+        }
+
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            const eyeIcon = document.getElementById('eyeIcon');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                eyeIcon.classList.replace('fa-eye', 'fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                eyeIcon.classList.replace('fa-eye-slash', 'fa-eye');
+            }
+        }
+
+        function toggleMobileMenu() {
+            document.getElementById('mobileMenu').classList.toggle('translate-x-full');
+        }
+
+        function setCurrentViewAndClose(view) {
+            setCurrentView(view);
+            toggleMobileMenu();
+        }
+
+        function logoutAndClose() {
+            logout();
+            const menu = document.getElementById('mobileMenu');
+            if (menu && !menu.classList.contains('translate-x-full')) {
+                menu.classList.add('translate-x-full');
+            }
+        }
+
+        /* ---------------- ADMIN PANEL ---------------- */
+
+        function renderAdminPanel() {
+            const appData = getStorage();
+            const users = appData.users;
+            const requests = appData.requests || [];
+            const pendingCount = requests.filter(r => r.status === 'pending').length;
+            
+            const totalUsers = users.filter(u => u.role !== 'admin').length;
+            const activeUsers = users.filter(u => !u.isLocked && u.role !== 'admin').length;
+            
+            // Calculate Total System Holdings (User Balances)
+            const totalBalance = users.reduce((acc, curr) => {
+                // Only sum up regular users, not admin accounts
+                return acc + (curr.role !== 'admin' ? Number(curr.balance) : 0);
+            }, 0);
+            
+            app.className = "w-full min-h-screen bg-gray-50 block";
+            const getBtnClass = (view) => currentView === view ? 'text-white bg-blue-700' : 'text-blue-200 hover:text-white bg-blue-900/50 hover:bg-blue-800/70';
+
+            app.innerHTML = `
+                <nav class="bg-blue-800 text-white shadow-lg sticky top-0 z-30">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div class="flex justify-between h-16 items-center">
+                            <div class="flex items-center">
+                                <i class="fas fa-shield-alt text-blue-300 text-2xl mr-3"></i>
+                                <span class="font-bold text-xl tracking-tight">Admin Console</span>
+                            </div>
+                            
+                            <div class="hidden sm:flex items-center space-x-4">
+                                <button onclick="setCurrentView('dashboard')" class="${getBtnClass('dashboard')} px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                                    <i class="fas fa-tachometer-alt mr-1"></i> Dashboard
+                                </button>
+                                <button onclick="setCurrentView('requests')" class="${getBtnClass('requests')} px-3 py-2 rounded-lg text-sm font-medium transition-colors relative">
+                                    <i class="fas fa-exchange-alt mr-1"></i> Requests
+                                    ${pendingCount > 0 ? `<span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center border-2 border-blue-800">${pendingCount}</span>` : ''}
+                                </button>
+                                <button onclick="setCurrentView('history')" class="${getBtnClass('history')} px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                                    <i class="fas fa-history mr-1"></i> History
+                                </button>
+                                <button onclick="logout()" class="text-red-300 hover:text-white font-medium text-sm ml-4">Logout <i class="fas fa-sign-out-alt ml-1"></i></button>
+                            </div>
+                            
+                            <button onclick="toggleMobileMenu()" class="sm:hidden p-2 rounded-lg hover:bg-blue-700 transition-colors">
+                                <i class="fas fa-bars text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+                
+                <div id="mobileMenu" class="fixed top-0 right-0 h-full w-64 bg-blue-900 shadow-2xl z-40 transform translate-x-full transition-transform duration-300 sm:hidden">
+                    <div class="p-4 flex flex-col space-y-2">
+                        <div class="text-right mb-4">
+                            <button onclick="toggleMobileMenu()" class="text-blue-200 hover:text-white"><i class="fas fa-times text-xl"></i></button>
+                        </div>
+                        <button onclick="setCurrentViewAndClose('dashboard')" class="p-3 rounded-lg text-left w-full transition-colors font-medium ${getBtnClass('dashboard')}">
+                            <i class="fas fa-tachometer-alt mr-2"></i> Dashboard
+                        </button>
+                        <button onclick="setCurrentViewAndClose('requests')" class="p-3 rounded-lg text-left w-full transition-colors font-medium ${getBtnClass('requests')}">
+                            <div class="flex justify-between items-center">
+                                <span><i class="fas fa-exchange-alt mr-2"></i> Requests</span>
+                                ${pendingCount > 0 ? `<span class="bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">${pendingCount}</span>` : ''}
+                            </div>
+                        </button>
+                        <button onclick="setCurrentViewAndClose('history')" class="p-3 rounded-lg text-left w-full transition-colors font-medium ${getBtnClass('history')}">
+                            <i class="fas fa-history mr-2"></i> History
+                        </button>
+                        <div class="pt-4 border-t border-blue-800">
+                            <button onclick="logoutAndClose()" class="text-red-300 hover:text-white hover:bg-red-800/50 p-3 rounded-lg text-left w-full transition-colors font-medium">
+                                <i class="fas fa-sign-out-alt mr-2"></i> Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 fade-in">
+                    ${
+                        currentView === 'dashboard' ? renderAdminDashboard(users, totalUsers, activeUsers, totalBalance) : 
+                        currentView === 'requests' ? renderAdminRequests(requests) :
+                        renderFundHistory(appData.fundHistory, users)
+                    }
+                </main>
+
+                ${getModals(users)}
+            `;
+            
+            if(currentView === 'dashboard') {
+                document.getElementById('createUserForm').addEventListener('submit', handleCreateUser);
+            }
+            const depositForm = document.getElementById('depositForm');
+            if (depositForm) {
+                depositForm.removeEventListener('submit', handleDeposit);
+                depositForm.addEventListener('submit', handleDeposit);
+            }
+        }
+
+        function setCurrentView(view) {
+            currentView = view;
+            renderAdminPanel();
+        }
+
+        function renderAdminDashboard(users, totalUsers, activeUsers, totalBalance) {
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase">Total Users</p>
+                                <h3 class="text-2xl font-bold text-gray-800 mt-1">${totalUsers}</h3>
+                            </div>
+                            <div class="p-3 bg-blue-50 rounded-lg text-blue-600"><i class="fas fa-users"></i></div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase">System Holdings</p>
+                                <h3 class="text-2xl font-bold text-gray-800 mt-1">$${Number(totalBalance).toLocaleString(undefined, {minimumFractionDigits: 2})}</h3>
+                            </div>
+                            <div class="p-3 bg-green-50 rounded-lg text-green-600"><i class="fas fa-wallet"></i></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs font-semibold text-gray-400 uppercase">Active Accounts</p>
+                                <h3 class="text-2xl font-bold text-gray-800 mt-1">${activeUsers}</h3>
+                            </div>
+                            <div class="p-3 bg-purple-50 rounded-lg text-purple-600"><i class="fas fa-check-circle"></i></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                    <h2 class="text-2xl font-bold text-gray-800">User Management</h2>
+                    <button onclick="openCreateModal()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow transition-colors">
+                        <i class="fas fa-plus mr-2"></i>Create New User
+                    </button>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User Info</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Balance</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Status</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${users.map(user => {
+                                    if(user.role === 'admin') return ''; 
+                                    return `
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center">
+                                                <div class="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold mr-3">
+                                                    ${user.fullName.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <div class="font-medium text-gray-900">${user.fullName}</div>
+                                                    <div class="text-xs text-gray-500">@${user.username}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="font-mono font-medium text-gray-700">$${user.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 text-xs rounded-full ${user.isLocked ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
+                                                ${user.isLocked ? 'Locked' : 'Active'}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right space-x-2">
+                                            <button onclick="openPaymentModal(${user.id})" class="text-gray-400 hover:text-green-600 transition-colors" title="Manual Deposit">
+                                                <i class="fas fa-wallet"></i>
+                                            </button>
+                                            <button onclick="openBalanceModal(${user.id})" class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit Balance">
+                                                <i class="fas fa-coins"></i>
+                                            </button>
+                                            <button onclick="toggleLock(${user.id})" class="${user.isLocked ? 'text-red-500 hover:text-green-500' : 'text-gray-400 hover:text-red-500'} transition-colors">
+                                                <i class="fas ${user.isLocked ? 'fa-lock' : 'fa-lock-open'}"></i>
+                                            </button>
+                                            <button onclick="openDeleteModal(${user.id})" class="text-gray-400 hover:text-red-600 transition-colors">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminRequests(requests) {
+            const pendingRequests = requests.filter(r => r.status === 'pending');
+            
+            return `
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold text-gray-800">Pending Requests</h2>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Details</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${pendingRequests.length > 0 ? pendingRequests.map(req => `
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="font-medium text-gray-900">@${req.username}</div>
+                                            <div class="text-xs text-gray-500">${new Date(req.timestamp).toLocaleString()}</div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 text-xs rounded-full font-bold uppercase ${req.type === 'deposit' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
+                                                ${req.type}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 font-mono font-bold text-gray-700">
+                                            $${Number(req.amount).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-gray-600">
+                                            <div class="font-semibold">${req.method.toUpperCase()}</div>
+                                            <div class="text-xs text-gray-500">${req.details}</div>
+                                        </td>
+                                        <td class="px-6 py-4 text-right space-x-2">
+                                            <button onclick="processRequest(${req.id}, 'approve')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded shadow text-xs">
+                                                <i class="fas fa-check mr-1"></i> Approve
+                                            </button>
+                                            <button onclick="processRequest(${req.id}, 'reject')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded shadow text-xs">
+                                                <i class="fas fa-times mr-1"></i> Reject
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('') : `
+                                    <tr>
+                                        <td colspan="5" class="px-6 py-12 text-center text-gray-400">
+                                            <i class="fas fa-inbox text-4xl mb-3"></i>
+                                            <p>No pending requests found.</p>
+                                        </td>
+                                    </tr>
+                                `}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderFundHistory(history, users) {
+            const sortedHistory = [...history].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            const getUserName = (userId) => {
+                const user = users.find(u => u.id === userId);
+                return user ? user.fullName : 'Unknown';
+            }
+            const getMethodStyle = (method) => {
+                switch(method) {
+                    case 'bank': return 'bg-bank text-white';
+                    case 'bkash': return 'bg-bkash text-white';
+                    case 'nagad': return 'bg-nagad text-white';
+                    default: return 'bg-gray-200 text-gray-700';
+                }
+            }
+
+            return `
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">Fund History</h2>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">User</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Type</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Method</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Amount</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Ref/Trx</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                ${sortedHistory.length > 0 ? sortedHistory.map(log => `
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 text-sm font-medium text-gray-900">
+                                            ${getUserName(log.userId)}
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="text-xs font-bold uppercase ${log.type === 'withdraw' ? 'text-red-600' : 'text-green-600'}">
+                                                ${log.type || 'Deposit'}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-1 text-xs rounded font-bold ${getMethodStyle(log.method)}">
+                                                ${log.method.toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 font-mono font-bold ${log.type === 'withdraw' ? 'text-red-600' : 'text-green-600'}">
+                                            ${log.type === 'withdraw' ? '-' : '+'} $${Number(log.amount).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                                        </td>
+                                        <td class="px-6 py-4 text-sm font-mono text-gray-700">${log.trxId}</td>
+                                        <td class="px-6 py-4 text-xs text-gray-500">${new Date(log.timestamp).toLocaleString()}</td>
+                                    </tr>
+                                `).join('') : `
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                                            No history records.
+                                        </td>
+                                    </tr>
+                                `}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        /* ---------------- USER PANEL ---------------- */
+
+        function renderUserPanel() {
+            const appData = getStorage();
+            const freshUser = appData.users.find(u => u.id === currentUser.id);
+            if (freshUser) currentUser = freshUser;
+
+            app.className = "w-full min-h-screen bg-gray-100 block";
+            
+            app.innerHTML = `
+                <div class="min-h-screen flex flex-col">
+                     <nav class="bg-blue-800 text-white shadow-lg sticky top-0 z-20">
+                        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div class="flex justify-between h-16 items-center">
+                                <div class="flex items-center cursor-pointer" onclick="changeUserView('home')">
+                                    <i class="fas fa-wallet mr-2 text-blue-300"></i>
+                                    <span class="font-bold text-xl tracking-tight">MyWallet</span>
+                                </div>
+                                <div class="flex items-center space-x-4">
+                                    <span class="hidden sm:inline text-sm text-blue-200">Hi, ${currentUser.username}</span>
+                                    <button onclick="logout()" class="text-blue-200 hover:text-white text-sm font-medium bg-blue-900/50 px-4 py-2 rounded-lg transition-colors">
+                                        Logout
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main class="flex-grow max-w-4xl mx-auto w-full px-4 py-8 fade-in">
+                        ${
+                            currentUserView === 'home' ? renderUserDashboard() :
+                            currentUserView === 'deposit' ? renderUserDepositForm() :
+                            renderUserWithdrawForm()
+                        }
+                    </main>
+                </div>
+            `;
+        }
+
+        function changeUserView(view) {
+            currentUserView = view;
+            renderUserPanel();
+        }
+
+        function renderUserDashboard() {
+            const appData = getStorage();
+            const myRequests = (appData.requests || []).filter(r => r.userId === currentUser.id).sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+            return `
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6 flex items-center space-x-4">
+                     <div class="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold shadow-md">
+                        ${currentUser.fullName.charAt(0)}
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800">${currentUser.fullName}</h2>
+                        <p class="text-gray-500 text-sm">@${currentUser.username}</p>
+                    </div>
+                </div>
+
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl shadow-xl text-white p-8 mb-8 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-white opacity-10"></div>
+                    <div class="absolute bottom-0 left-0 -ml-8 -mb-8 w-24 h-24 rounded-full bg-white opacity-10"></div>
+                    
+                    <p class="text-blue-100 text-sm font-medium uppercase tracking-wider mb-1">Current Balance</p>
+                    <h1 class="text-4xl sm:text-5xl font-bold mb-6">$${currentUser.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</h1>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="changeUserView('deposit')" class="bg-white/20 hover:bg-white/30 backdrop-blur-sm py-3 rounded-lg flex items-center justify-center transition-all font-medium">
+                            <i class="fas fa-arrow-down mr-2"></i> Deposit
+                        </button>
+                        <button onclick="changeUserView('withdraw')" class="bg-white/20 hover:bg-white/30 backdrop-blur-sm py-3 rounded-lg flex items-center justify-center transition-all font-medium">
+                            <i class="fas fa-arrow-up mr-2"></i> Withdraw
+                        </button>
+                    </div>
+                </div>
+
+                <h3 class="text-lg font-bold text-gray-700 mb-4">Recent Requests</h3>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    ${myRequests.length > 0 ? `
+                        <div class="divide-y divide-gray-100">
+                            ${myRequests.map(req => `
+                                <div class="p-4 flex justify-between items-center hover:bg-gray-50">
+                                    <div>
+                                        <div class="flex items-center">
+                                            <span class="font-bold text-sm ${req.type === 'deposit' ? 'text-green-600' : 'text-red-500'} uppercase mr-2">${req.type}</span>
+                                            <span class="text-xs text-gray-500">${new Date(req.timestamp).toLocaleDateString()}</span>
+                                        </div>
+                                        <div class="text-xs text-gray-500 mt-1">${req.method.toUpperCase()} • ${req.details}</div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="font-bold text-gray-800">$${Number(req.amount).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                                        <div class="text-xs font-bold uppercase 
+                                            ${req.status === 'pending' ? 'text-yellow-500' : 
+                                              req.status === 'approved' ? 'text-green-500' : 'text-red-500'}">
+                                            ${req.status}
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="p-6 text-center text-gray-400 text-sm">
+                            No recent requests found.
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function renderUserDepositForm() {
+            return `
+                <div class="mb-4">
+                    <button onclick="changeUserView('home')" class="text-blue-600 hover:underline flex items-center text-sm font-medium">
+                        <i class="fas fa-arrow-left mr-1"></i> Back to Dashboard
+                    </button>
+                </div>
+                <div class="bg-white rounded-2xl shadow-lg p-8 fade-in">
+                    <div class="flex items-center mb-6 text-green-600">
+                        <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center mr-3">
+                            <i class="fas fa-wallet"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-gray-800">Deposit Funds</h2>
+                    </div>
+                    
+                    <form onsubmit="handleUserRequestSubmit(event, 'deposit')" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Method</label>
+                            <select name="method" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none bg-white" required>
+                                <option value="bkash">Bkash</option>
+                                <option value="nagad">Nagad</option>
+                                <option value="bank">Bank Transfer</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                            <input type="number" name="amount" min="10" step="0.01" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none" placeholder="0.00" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Transaction ID / Sender Number</label>
+                            <input type="text" name="details" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-green-500 outline-none" placeholder="e.g. TrxID 8H92N..." required>
+                            <p class="text-xs text-gray-400 mt-1">Send money to Admin (017XXXXXXXX) then submit this form.</p>
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-md transition-all">
+                            Submit Deposit Request
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        function renderUserWithdrawForm() {
+             return `
+                <div class="mb-4">
+                    <button onclick="changeUserView('home')" class="text-blue-600 hover:underline flex items-center text-sm font-medium">
+                        <i class="fas fa-arrow-left mr-1"></i> Back to Dashboard
+                    </button>
+                </div>
+                <div class="bg-white rounded-2xl shadow-lg p-8 fade-in">
+                    <div class="flex items-center mb-6 text-red-500">
+                        <div class="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mr-3">
+                            <i class="fas fa-money-bill-wave"></i>
+                        </div>
+                        <h2 class="text-2xl font-bold text-gray-800">Withdraw Funds</h2>
+                    </div>
+                    
+                    <div class="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200 text-sm text-gray-600">
+                        Available Balance: <span class="font-bold text-gray-800">$${currentUser.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                    </div>
+
+                    <form onsubmit="handleUserRequestSubmit(event, 'withdraw')" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Select Method</label>
+                            <select name="method" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-red-500 outline-none bg-white" required>
+                                <option value="bkash">Bkash</option>
+                                <option value="nagad">Nagad</option>
+                                <option value="bank">Bank Transfer</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                            <input type="number" name="amount" min="10" step="0.01" max="${currentUser.balance}" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-red-500 outline-none" placeholder="0.00" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Your Account Number</label>
+                            <input type="text" name="details" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-red-500 outline-none" placeholder="e.g. 017XXXXXXXX" required>
+                        </div>
+                        <button type="submit" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-lg shadow-md transition-all">
+                            Submit Withdrawal Request
+                        </button>
+                    </form>
+                </div>
+            `;
+        }
+
+        /* ---------------- LOGIC HANDLERS ---------------- */
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const userIn = document.getElementById('username').value;
+            const passIn = document.getElementById('password').value;
+            
+            const appData = getStorage();
+            const foundUser = appData.users.find(u => u.username === userIn && u.password === passIn);
+
+            if (foundUser) {
+                if (foundUser.isLocked) {
+                    showToast('Access Denied', 'Your account is locked.', 'error');
+                } else {
+                    currentUser = foundUser;
+                    currentView = 'dashboard'; // Reset admin view
+                    currentUserView = 'home'; // Reset user view
+                    
+                    if (currentUser.role === 'admin') {
+                        renderAdminPanel();
+                    } else {
+                        renderUserPanel();
+                    }
+                    showToast('Success', `Welcome back, ${currentUser.fullName}`, 'success');
+                }
+            } else {
+                showToast('Login Failed', 'Invalid credentials.', 'error');
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            renderLogin();
+        }
+
+        // -- ADMIN: User Management --
+
+        function handleCreateUser(e) {
+            e.preventDefault();
+            const form = e.target;
+            const appData = getStorage();
+            const users = appData.users;
+
+            if (users.find(u => u.username === form.username.value)) {
+                showToast('Error', 'Username already exists', 'error');
+                return;
+            }
+
+            const newUser = {
+                id: Date.now(),
+                username: form.username.value,
+                password: form.password.value,
+                fullName: form.fullName.value,
+                balance: Number(form.balance.value),
+                role: 'user',
+                isLocked: false,
+                createdAt: new Date().toISOString()
+            };
+
+            users.push(newUser);
+            setStorage(appData);
+            closeCreateModal();
+            renderAdminPanel();
+            showToast('Success', 'User created.', 'success');
+        }
+
+        function toggleLock(id) {
+            const appData = getStorage();
+            const users = appData.users;
+            const idx = users.findIndex(u => u.id === id);
+            if(idx !== -1 && users[idx].role !== 'admin') {
+                users[idx].isLocked = !users[idx].isLocked;
+                setStorage(appData);
+                renderAdminPanel();
+                showToast('Info', `User ${users[idx].isLocked ? 'Locked' : 'Unlocked'}`, 'info');
+            }
+        }
+
+        // -- ADMIN: Manual Deposit Logic --
+        function openPaymentModal(id) {
+            depositUserId = id; 
+            const appData = getStorage();
+            const user = appData.users.find(u => u.id === id);
+            document.getElementById('depositUserDisplay').textContent = `${user.fullName} (@${user.username})`;
+            document.getElementById('paymentFormSection').classList.add('hidden');
+            document.getElementById('paymentMethodsGrid').classList.remove('hidden');
+            document.getElementById('paymentModal').classList.remove('hidden');
+            document.getElementById('paymentModal').classList.add('flex');
+            document.querySelectorAll('#paymentMethodsGrid > div').forEach(el => el.style.borderColor = '');
+        }
+
+        function closePaymentModal() {
+            depositUserId = null;
+            document.getElementById('depositForm').reset();
+            document.getElementById('paymentModal').classList.add('hidden');
+            document.getElementById('paymentModal').classList.remove('flex');
+        }
+
+        function selectPaymentMethod(method) {
+            const formSection = document.getElementById('paymentFormSection');
+            const methodsGrid = document.getElementById('paymentMethodsGrid');
+            const nameEl = document.getElementById('methodName');
+            const iconEl = document.getElementById('methodIcon');
+            
+            document.querySelectorAll('#paymentMethodsGrid > div').forEach(el => el.style.borderColor = 'rgb(243 244 246)');
+            document.getElementById(`method-${method}`).style.borderColor = method === 'bank' ? 'rgb(59 130 246)' : method === 'bkash' ? 'rgb(236 72 153)' : 'rgb(249 115 22)';
+            
+            document.getElementById('selectedMethodInput').value = method;
+            methodsGrid.classList.add('hidden');
+            formSection.classList.remove('hidden');
+            formSection.classList.add('fade-in');
+
+            if(method === 'bank') {
+                nameEl.innerText = 'Bank Transfer';
+                iconEl.innerHTML = '<i class="fas fa-university text-blue-600"></i>';
+            } else if (method === 'bkash') {
+                nameEl.innerText = 'Bkash';
+                iconEl.innerHTML = '<i class="fas fa-mobile-alt text-bkash"></i>';
+            } else if (method === 'nagad') {
+                nameEl.innerText = 'Nagad';
+                iconEl.innerHTML = '<i class="fas fa-wallet text-nagad"></i>';
+            }
+        }
+
+        function handleDeposit(e) {
+            e.preventDefault();
+            if (!depositUserId) return;
+            const amount = parseFloat(document.getElementById('depositAmount').value);
+            const method = document.getElementById('selectedMethodInput').value;
+            const trxId = document.getElementById('depositTrxId').value;
+            
+            if(amount > 0) {
+                const appData = getStorage();
+                const idx = appData.users.findIndex(u => u.id === depositUserId);
+                
+                if(idx !== -1) {
+                    // Use Number to avoid concatenation
+                    appData.users[idx].balance = Number(appData.users[idx].balance) + Number(amount);
+                    appData.fundHistory.push({
+                        id: Date.now(),
+                        userId: depositUserId,
+                        username: appData.users[idx].username,
+                        type: 'deposit',
+                        amount: amount,
+                        method: method,
+                        trxId: trxId,
+                        timestamp: new Date().toISOString()
+                    });
+                    setStorage(appData);
+                    closePaymentModal();
+                    renderAdminPanel();
+                    showToast('Success', 'Funds added successfully.', 'success');
+                }
+            }
+        }
+
+        // -- USER: Request Logic --
+
+        function handleUserRequestSubmit(e, type) {
+            e.preventDefault();
+            const form = e.target;
+            const amount = Number(form.amount.value); // Enforce Number
+            const method = form.method.value;
+            const details = form.details.value;
+
+            if (type === 'withdraw' && amount > currentUser.balance) {
+                showToast('Error', 'Insufficient balance.', 'error');
+                return;
+            }
+
+            const appData = getStorage();
+            
+            const newRequest = {
+                id: Date.now(),
+                userId: currentUser.id,
+                username: currentUser.username,
+                type: type,
+                amount: amount,
+                method: method,
+                details: details,
+                status: 'pending',
+                timestamp: new Date().toISOString()
+            };
+
+            if (!appData.requests) appData.requests = [];
+            appData.requests.push(newRequest);
+            setStorage(appData);
+
+            showToast('Success', `${type.charAt(0).toUpperCase() + type.slice(1)} request submitted!`, 'success');
+            changeUserView('home'); 
+        }
+
+        // -- ADMIN: Process Requests --
+
+        function processRequest(reqId, action) {
+            const appData = getStorage();
+            // Force reqId to number just in case
+            const reqIndex = appData.requests.findIndex(r => r.id === Number(reqId));
+            
+            if (reqIndex === -1) {
+                showToast('Error', 'Request not found', 'error');
+                return;
+            }
+
+            const request = appData.requests[reqIndex];
+            
+            // Prevent reprocessing if already handled
+            if (request.status !== 'pending') {
+                showToast('Info', 'Request already processed', 'info');
+                renderAdminPanel();
+                return;
+            }
+
+            const userIndex = appData.users.findIndex(u => u.id === request.userId);
+
+            if (userIndex === -1) {
+                showToast('Error', 'User not found', 'error');
+                return;
+            }
+
+            if (action === 'reject') {
+                appData.requests[reqIndex].status = 'rejected';
+                setStorage(appData);
+                renderAdminPanel();
+                showToast('Info', 'Request rejected.', 'info');
+                return;
+            }
+
+            if (action === 'approve') {
+                // STRICT MATH: Convert everything to Number
+                const amount = Number(request.amount);
+                let currentBalance = Number(appData.users[userIndex].balance);
+
+                if (request.type === 'deposit') {
+                    appData.users[userIndex].balance = currentBalance + amount;
+                } else if (request.type === 'withdraw') {
+                    if (currentBalance < amount) {
+                        showToast('Error', 'User has insufficient balance now.', 'error');
+                        return;
+                    }
+                    appData.users[userIndex].balance = currentBalance - amount;
+                }
+                
+                // IMPORTANT: Save the balance update immediately
+                setStorage(appData);
+
+                // Log to history
+                const newLog = {
+                    id: Date.now(),
+                    userId: request.userId,
+                    username: request.username,
+                    type: request.type,
+                    amount: amount,
+                    method: request.method,
+                    trxId: request.type === 'deposit' ? request.details : `WITHDRAW-${request.id}`,
+                    timestamp: new Date().toISOString()
+                };
+
+                // Reload appData again to be safe or just push to current reference
+                appData.fundHistory.push(newLog);
+                appData.requests[reqIndex].status = 'approved';
+                
+                setStorage(appData);
+                renderAdminPanel();
+                showToast('Success', 'Request approved & balance updated.', 'success');
+            }
+        }
+
+        // Other Modal Helpers
+        function openCreateModal() { document.getElementById('createModal').classList.remove('hidden'); document.getElementById('createModal').classList.add('flex'); }
+        function closeCreateModal() { document.getElementById('createModal').classList.add('hidden'); document.getElementById('createModal').classList.remove('flex'); }
+        
+        function openBalanceModal(id) {
+            const appData = getStorage();
+            const user = appData.users.find(u => u.id === id);
+            document.getElementById('balanceUserId').value = id;
+            document.getElementById('newBalanceInput').value = user.balance;
+            document.getElementById('balanceModal').classList.remove('hidden');
+            document.getElementById('balanceModal').classList.add('flex');
+        }
+        function closeBalanceModal() { document.getElementById('balanceModal').classList.add('hidden'); document.getElementById('balanceModal').classList.remove('flex'); }
+        function saveBalance() {
+            const id = Number(document.getElementById('balanceUserId').value);
+            const newBal = Number(document.getElementById('newBalanceInput').value); // Enforce Number
+            const appData = getStorage();
+            const idx = appData.users.findIndex(u => u.id === id);
+            if (idx !== -1) {
+                appData.users[idx].balance = newBal;
+                setStorage(appData);
+                closeBalanceModal();
+                renderAdminPanel();
+                showToast('Success', 'Balance updated', 'success');
+            }
+        }
+
+        function openDeleteModal(id) { userToDeleteId = id; document.getElementById('deleteModal').classList.remove('hidden'); document.getElementById('deleteModal').classList.add('flex'); }
+        function closeDeleteModal() { userToDeleteId = null; document.getElementById('deleteModal').classList.add('hidden'); document.getElementById('deleteModal').classList.remove('flex'); }
+        function confirmDeleteUser() {
+            if (!userToDeleteId) return;
+            const appData = getStorage();
+            appData.users = appData.users.filter(u => u.id !== userToDeleteId);
+            setStorage(appData);
+            closeDeleteModal();
+            renderAdminPanel();
+            showToast('Deleted', 'User removed', 'info');
+        }
+
+        function getModals(users) {
+            const defaultPaymentModal = `
+                <div id="paymentModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl h-auto max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold text-gray-800">Admin Deposit System</h3>
+                            <button onclick="closePaymentModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                        </div>
+                        <div class="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            Depositing to: <strong id="depositUserDisplay" class="text-blue-700"></strong>
+                        </div>
+                        <div id="paymentMethodsGrid" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                            <div id="method-bank" onclick="selectPaymentMethod('bank')" class="cursor-pointer border-2 border-gray-100 hover:border-blue-500 rounded-xl p-4 text-center transition-all">
+                                <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3 text-blue-600"><i class="fas fa-university text-xl"></i></div>
+                                <h4 class="font-bold text-gray-700">Bank</h4>
+                            </div>
+                            <div id="method-bkash" onclick="selectPaymentMethod('bkash')" class="cursor-pointer border-2 border-gray-100 hover:border-pink-500 rounded-xl p-4 text-center transition-all">
+                                <div class="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-3 text-bkash"><i class="fas fa-mobile-alt text-xl"></i></div>
+                                <h4 class="font-bold text-gray-700">Bkash</h4>
+                            </div>
+                            <div id="method-nagad" onclick="selectPaymentMethod('nagad')" class="cursor-pointer border-2 border-gray-100 hover:border-orange-500 rounded-xl p-4 text-center transition-all">
+                                <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3 text-nagad"><i class="fas fa-wallet text-xl"></i></div>
+                                <h4 class="font-bold text-gray-700">Nagad</h4>
+                            </div>
+                        </div>
+                        <div id="paymentFormSection" class="hidden border-t border-gray-100 pt-6">
+                            <h4 id="selectedMethodTitle" class="font-bold text-lg mb-4 flex items-center"><span id="methodIcon" class="mr-2"></span> <span id="methodName"></span> Details</h4>
+                            <form id="depositForm" class="space-y-4">
+                                <input type="hidden" id="selectedMethodInput" required>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">Amount</label>
+                                    <input type="number" id="depositAmount" min="10" step="0.01" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 mb-1">Reference</label>
+                                    <input type="text" id="depositTrxId" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required>
+                                </div>
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md mt-2">Process Deposit</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const createModal = `
+                <div id="createModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-bold text-gray-800">Create User Account</h3>
+                            <button onclick="closeCreateModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                        </div>
+                        <form id="createUserForm" class="space-y-4">
+                            <div><label class="block text-xs font-medium text-gray-700 mb-1">Full Name</label><input type="text" name="fullName" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                            <div><label class="block text-xs font-medium text-gray-700 mb-1">Username</label><input type="text" name="username" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                            <div><label class="block text-xs font-medium text-gray-700 mb-1">Password</label><input type="password" name="password" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                            <div><label class="block text-xs font-medium text-gray-700 mb-1">Initial Balance</label><input type="number" name="balance" value="0" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none" required></div>
+                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg mt-2">Create Account</button>
+                        </form>
+                    </div>
+                </div>
+            `;
+
+            const balanceModal = `
+                <div id="balanceModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                        <h3 class="text-lg font-bold text-gray-800 mb-4">Update Balance</h3>
+                        <input type="hidden" id="balanceUserId">
+                        <div class="mb-4"><label class="block text-xs font-medium text-gray-700 mb-1">New Balance</label><input type="number" id="newBalanceInput" step="0.01" class="w-full p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none"></div>
+                        <div class="flex gap-3"><button onclick="closeBalanceModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg">Cancel</button><button onclick="saveBalance()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg">Save</button></div>
+                    </div>
+                </div>
+            `;
+
+            const deleteModal = `
+                <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 backdrop-blur-sm">
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+                        <div class="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-xl"><i class="fas fa-exclamation-triangle"></i></div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-2">Delete User?</h3>
+                        <p class="text-sm text-gray-500 mb-6">Are you sure you want to delete this account? This action cannot be undone.</p>
+                        <div class="flex gap-3"><button onclick="closeDeleteModal()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 rounded-lg">Cancel</button><button onclick="confirmDeleteUser()" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 rounded-lg shadow-md">Delete</button></div>
+                    </div>
+                </div>
+            `;
+
+            return defaultPaymentModal + createModal + balanceModal + deleteModal;
+        }
+
+        // Start the app
+        renderLogin();
+
+    </script>
+</body>
+</html>
