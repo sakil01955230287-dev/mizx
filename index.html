@@ -52,15 +52,25 @@
          * FIREBASE INTEGRATION
          */
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Configuration & Initialization ---
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // UPDATED: Using your specific Firebase Configuration
+        const firebaseConfig = {
+  apiKey: "AIzaSyD5fr0JZKm9ZvVHY6CRNoi8KqLOXDDIdUY",
+  authDomain: "coffee-spark-ai-barista-7951b.firebaseapp.com",
+  projectId: "coffee-spark-ai-barista-7951b",
+  storageBucket: "coffee-spark-ai-barista-7951b.firebasestorage.app",
+  messagingSenderId: "720643698314",
+  appId: "1:720643698314:web:546679d3d90210384e4773"
+};
         const appInstance = initializeApp(firebaseConfig);
         const auth = getAuth(appInstance);
         const db = getFirestore(appInstance);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        // Define a fixed App ID for your database structure
+        const appId = 'mizx-pay-live';
 
         // --- State Management ---
         let localUsers = [];
@@ -79,10 +89,12 @@
 
         // --- Database Helper Functions ---
         async function initAuth() {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
+            try {
+                // Directly sign in anonymously for your custom project
                 await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Auth Error:", error);
+                showToast('Auth Error', 'Could not sign in to database.', 'error');
             }
         }
 
@@ -91,11 +103,13 @@
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
+                console.log("Connected to Firebase as:", user.uid);
                 setupRealtimeListeners();
             }
         });
 
         function setupRealtimeListeners() {
+            // Path: /artifacts/mizx-pay-live/public/data/...
             const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
             const historyRef = collection(db, 'artifacts', appId, 'public', 'data', 'fundHistory');
 
@@ -124,7 +138,7 @@
                 refreshUI();
             }, (error) => {
                 console.error("User sync error:", error);
-                showToast('Connection Error', 'Failed to sync users', 'error');
+                showToast('Connection Error', 'Failed to sync users (Check Firestore Rules)', 'error');
             });
 
             // Listener for History
